@@ -7,7 +7,7 @@ import folium
 from streamlit_folium import st_folium
 
 # ---- API Key for OpenRouteService -----
-ORS_API_KEY = "EnterAPI"
+ORS_API_KEY = st.secrets["ORS_API_KEY"]
 
 # ---- Styles ----
 st.set_page_config(page_title="RideShare", page_icon="🚗", layout="wide", initial_sidebar_state="collapsed")
