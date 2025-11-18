@@ -9,8 +9,7 @@ import random
 
 # ---- API Key for OpenRouteService -----
 # For Streamlit Cloud production, do: ORS_API_KEY = st.secrets["ORS_API_KEY"]
-ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImJkZDEyN2FlMGNmMzQ5MWFiZDRiYzczYTA2Y2E2OWRlIiwiaCI6Im11cm11cjY0In0="
-
+ORS_API_KEY = st.secrets["ORS_API_KEY"]
 # ---- Styles ----
 st.set_page_config(page_title="RideShare", page_icon="🚗", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
