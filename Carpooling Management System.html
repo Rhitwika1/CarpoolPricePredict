@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carpool Booking System</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<style>
+body{margin:0;font-family:Segoe UI;background:#f4f6f8}
+header{background:#208060;color:#fff;padding:16px}
+.container{max-width:1400px;margin:auto;padding:20px}
+.layout{display:grid;grid-template-columns:360px 1fr;gap:20px}
+.sidebar{background:#fff;padding:20px;border-radius:8px}
+.map-container{height:500px;border-radius:8px;overflow:hidden}
+#map{width:100%;height:100%}
+input,select{width:100%;padding:8px;margin-bottom:10px}
+.btn{padding:12px;background:#208060;color:#fff;border:none;width:100%;cursor:pointer}
+.driver-card{border:1px solid #ddd;padding:10px;margin:10px 0;border-radius:6px}
+.book-btn{background:#0d6efd;color:#fff;border:none;padding:8px;width:100%;margin-top:6px;cursor:pointer}
+.hidden{display:none}
+</style>
+</head>
+
+<body>
+
+<header>
+<h2>Carpool Booking</h2>
+</header>
+
+<div class="container">
+<div class="layout">
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+<h3>Book Ride</h3>
+
+<label>Pickup Mode</label>
+<select id="pickupMode">
+  <option value="office">Office Location</option>
+  <option value="manual">Type Address</option>
+</select>
+
+<label id="pickupLabel" class="hidden">Pickup Location</label>
+<input id="pickup" class="hidden" placeholder="e.g. Howrah Station">
+
+<label>Drop Location</label>
+<input id="drop" placeholder="e.g. Salt Lake Sector V">
+
+<label>Date</label>
+<input type="date" id="rideDate">
+
+<label>Time</label>
+<input type="time" id="rideTime">
+
+<button class="btn" onclick="searchRide()">Search Ride</button>
+
+<hr>
+<p><b>Distance:</b> <span id="distance">-</span></p>
+<p><b>Estimated Fare:</b> ₹<span id="fare">-</span></p>
+</div>
+
+<!-- MAP + DRIVERS -->
+<div>
+<div class="map-container"><div id="map"></div></div>
+<h3>Nearby Drivers</h3>
+<div id="drivers"></div>
+</div>
+
+</div>
+</div>
+
+<script>
+/* ================= MAP ================= */
+const map = L.map("map").setView([22.5726,88.3639],12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+
+/* ================= STATE ================= */
+let userLocation=null;
+let userMarker, pickupMarker, dropMarker, routeLine;
+let driverMarkers=[];
+const R=6371;
+
+/* ================= ICON ================= */
+const carIcon=L.icon({
+  iconUrl:"https://cdn-icons-png.flaticon.com/512/744/744465.png",
+  iconSize:[26,26]
+});
+
+/* ================= USER LOCATION (IMPORTANT PART) ================= */
+navigator.geolocation.getCurrentPosition(
+  pos=>{
+    userLocation={lat:pos.coords.latitude,lng:pos.coords.longitude};
+    userMarker=L.marker(
+      [userLocation.lat,userLocation.lng],
+      {icon:L.icon({
+        iconUrl:"https://maps.gstatic.com/mapfiles/ms2/micons/blue-dot.png",
+        iconSize:[32,32]
+      })}
+    ).addTo(map).bindPopup("Your Location").openPopup();
+    map.setView([userLocation.lat,userLocation.lng],14);
+  },
+  ()=>alert("Please allow location access")
+);
+
+/* ================= PICKUP MODE TOGGLE ================= */
+pickupMode.onchange=()=>{
+  const manual = pickupMode.value==="manual";
+  pickup.classList.toggle("hidden", !manual);
+  pickupLabel.classList.toggle("hidden", !manual);
+};
+
+/* ================= UTILS ================= */
+function haversine(a,b,c,d){
+  const dLat=(c-a)*Math.PI/180;
+  const dLon=(d-b)*Math.PI/180;
+  const x=Math.sin(dLat/2)**2+
+    Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+function clearDrivers(){
+  driverMarkers.forEach(m=>map.removeLayer(m));
+  driverMarkers=[];
+  drivers.innerHTML="";
+}
+
+/* ================= GEOCODE ================= */
+async function geo(q){
+  const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
+  const j=await r.json();
+  return j[0]?{lat:+j[0].lat,lng:+j[0].lon}:null;
+}
+
+/* ================= ROUTE ================= */
+async function drawRoute(a,b){
+  if(routeLine) map.removeLayer(routeLine);
+  const r=await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson`
+  );
+  const j=await r.json();
+  const c=j.routes[0].geometry.coordinates.map(x=>[x[1],x[0]]);
+  routeLine=L.polyline(c,{color:"blue",weight:5}).addTo(map);
+}
+
+/* ================= DEMO DRIVERS ================= */
+const driverPool=[
+  {name:"Amit",rating:4.5},
+  {name:"Rohit",rating:4.2},
+  {name:"Neha",rating:4.6},
+  {name:"Arjun",rating:4.1},
+  {name:"Priya",rating:4.7}
+];
+
+/* ================= SEARCH ================= */
+async function searchRide(){
+  if(!userLocation) return alert("Allow location access");
+
+  const date=rideDate.value;
+  const time=rideTime.value;
+  if(!date||!time) return alert("Select date & time");
+
+  const selected=new Date(`${date}T${time}`);
+  if(selected < new Date()) return alert("Past booking not allowed");
+
+  let pickupPoint;
+  if(pickupMode.value==="office"){
+    pickupPoint={...userLocation};   // START FROM USER LOCATION
+  }else{
+    pickupPoint=await geo(pickup.value);
+    if(!pickupPoint) return alert("Pickup not found");
+  }
+
+  const dropPoint=await geo(drop.value);
+  if(!dropPoint) return alert("Drop not found");
+
+  if(pickupMarker) map.removeLayer(pickupMarker);
+  if(dropMarker) map.removeLayer(dropMarker);
+
+  pickupMarker=L.marker([pickupPoint.lat,pickupPoint.lng]).addTo(map).bindPopup("Pickup");
+  dropMarker=L.marker([dropPoint.lat,dropPoint.lng]).addTo(map).bindPopup("Drop");
+
+  await drawRoute(pickupPoint,dropPoint);
+  map.fitBounds([[pickupPoint.lat,pickupPoint.lng],[dropPoint.lat,dropPoint.lng]]);
+
+  const km=haversine(pickupPoint.lat,pickupPoint.lng,dropPoint.lat,dropPoint.lng);
+  distance.innerText=km.toFixed(2)+" km";
+
+  const baseFare=km*12;
+  fare.innerText=Math.round(baseFare);
+
+  clearDrivers();
+
+  driverPool.forEach(d=>{
+    const lat=pickupPoint.lat+(Math.random()-0.5)*0.02;
+    const lng=pickupPoint.lng+(Math.random()-0.5)*0.02;
+    const driverFare=baseFare*(1+(d.rating-4)*0.1);
+
+    const m=L.marker([lat,lng],{icon:carIcon}).addTo(map);
+    driverMarkers.push(m);
+
+    drivers.innerHTML+=`
+      <div class="driver-card">
+        <b>${d.name}</b><br>
+        ⭐ ${d.rating}<br>
+        Fare: ₹${driverFare.toFixed(0)}
+        <button class="book-btn" onclick="alert('Ride booked with ${d.name}!')">
+          Book Ride
+        </button>
+      </div>`;
+  });
+}
+</script>
+
+</body>
+</html>
